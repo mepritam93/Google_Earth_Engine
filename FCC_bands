@@ -1,0 +1,132 @@
+
+/////////////////  Define Region of Interest Boundary  /////////////////
+
+var dataset = ee.FeatureCollection("WWF/HydroSHEDS/v1/Basins/hybas_12")
+//Map.addLayer (dataset)
+
+var mainID = 4120031730 // Mahi Basin
+// var mainID = 4120031610 //ID for Narmada Basin
+// var mainID = 4120025450 //for Ganga
+// var mainID = 4120031730 //for Mahi Basin
+// var mainID = 4120027100 // Mahanadi
+// var mainID = 4120027940 //Krishna Basin
+
+var main = dataset.filter(ee.Filter.eq('MAIN_BAS', mainID))
+// print('No of Subbasins:', main.size());
+var roi = main;
+
+Map.addLayer (roi, {}, 'roi')
+Map.centerObject (roi)
+
+///////////////////// Defining dates/year /////////////////////
+
+var start_date = '2025-01-01';
+var end_date = '2025-01-31';
+
+/////////////////////  Sentinel-2 FCC  /////////////////////
+
+// Cloud masking of Sentinel-2 imagery
+function maskS2clouds_s2(image){
+  var qa = image.select('QA60');
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+    .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+    
+  return image.updateMask(mask).divide(10000);
+}
+
+var dataset_s2 = ee.ImageCollection('COPERNICUS/S2_HARMONIZED')
+		.filterDate(start_date, end_date)
+		.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 100))
+		.filterBounds(roi)
+		.map(maskS2clouds_s2)
+		// .median()
+		.map(function(img){return img.clip(roi)});
+
+var requiredBands = ['B8', 'B4', 'B3']
+dataset_s2 = dataset_s2.median().select(requiredBands)
+
+var viz = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B8', 'B4', 'B3']
+};
+
+// Display the false-color composite
+Map.addLayer(dataset_s2, viz, 'Sentinel_2_Jan_25_FCC');
+
+// Export Sentinel-2 FCC
+Export.image.toDrive({
+	crs: 'EPSG:4326',
+	image: dataset_s2,
+	description: 'Sentinel_2_TOA_Jan_25_FCC_100P',
+	region: roi,
+	scale: 100,
+	maxPixels: 1e13
+});
+
+/////////////////////  Landsat-8 FCC  /////////////////////
+
+var dataset_l8 = ee.ImageCollection("LANDSAT/LC08/C02/T1_TOA")
+		.filterDate(start_date, end_date)
+		.filter(ee.Filter.lt('CLOUD_COVER', 100))
+		.filterBounds(roi)
+		// .median()
+		.map(function(img){return img.clip(roi)});
+
+var requiredBands = ['B5', 'B4', 'B3']
+dataset_l8 = dataset_l8.median().select(requiredBands)
+
+var viz1 = {
+  min: 0,
+  max: 0.5,
+  gamma: [0.95, 1.1, 1],
+  bands: ['B5', 'B4', 'B3']
+};
+
+// Display the false-color composite
+Map.addLayer(dataset_l8, viz1, 'Landsat_8_TOA_Jan_25_FCC_100P');
+
+// Export Landsat-8 FCC
+Export.image.toDrive({
+	crs: 'EPSG:4326',
+	image: dataset_l8,
+	description: 'Landsat_8_TOA_Jan_25_FCC_100P',
+	region: roi,
+	scale: 100,
+	maxPixels: 1e13
+});
+
+/////////////////////  MODIS FCC  /////////////////////
+
+var dataset_mod = ee.ImageCollection("MODIS/061/MOD09GA")
+		.filterDate(start_date, end_date)
+		// .filter(ee.Filter.lt('CLOUD_COVER', 70))
+		.filterBounds(roi)
+		// .map(maskS2clouds_l8)
+		// .median()
+		.map(function(img){return img.clip(roi)});
+
+var requiredBands = ['sur_refl_b02', 'sur_refl_b01', 'sur_refl_b04']
+dataset_mod = dataset_mod.median().select(requiredBands)
+
+// Visualization parameters
+var visParams = {
+  min: 0,
+  max: 5000,
+  bands: ['sur_refl_b02', 'sur_refl_b01', 'sur_refl_b04']
+};
+
+// Display the false-color composite
+Map.addLayer(dataset_mod, visParams, 'MODIS_Jan_25_FCC');
+
+// Export MODIS FCC
+Export.image.toDrive({
+	crs: 'EPSG:4326',
+	image: dataset_mod,
+	description: 'MODIS_Jan_25_FCC',
+	region: roi,
+	scale: 1000,
+	maxPixels: 1e13
+});
