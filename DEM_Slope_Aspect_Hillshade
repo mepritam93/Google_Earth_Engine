@@ -1,0 +1,80 @@
+
+/////////////////  Define Region of Interest Boundary  /////////////////
+
+var roi = ee.Geometry.Polygon([[74.5,23.0], [84.5,23], [84.5,20.5], [74.5,20.5]]);
+
+Map.addLayer (roi, {}, 'roi', false);
+Map.centerObject (roi);
+
+// Import SRTM DEM
+var dem = ee.Image('USGS/SRTMGL1_003').clip(roi);
+// Define visualization parameters for the elevation data
+var demVis = {
+  min: 0,
+  max: 4000,
+  palette: ['000000', 'ffffff']
+};
+
+// Slope 
+var slope = ee.Terrain.slope(dem).clip(roi);
+var slopeVis = {
+  min: 0.02797884225845337,
+  max: 1.3709632706642152,
+  palette: ['2f35ff', '39d1ff', '41ff7b', 'ddff56', 'ffbe47', 'ff531f', 'ff0a0a']
+};
+Map.addLayer(slope, slopeVis, 'Slope')
+
+// Aspect
+var aspect = ee.Terrain.aspect(dem);
+var aspectVis = {
+  min: 0,
+  max: 360,
+  palette: ['red', 'green', 'blue']
+};
+Map.addLayer(aspect, aspectVis, "Aspect");
+
+// Compute the hillshade using the elevation data
+var hillshade = ee.Terrain.hillshade(dem).clip(roi);
+// Define visualization parameters for the hillshade
+var hillshadeVis = {
+  min: 0,
+  max: 255,
+  palette: ['000000', 'ffffff']
+};
+
+// Display the elevation and hillshade layers on the map
+Map.addLayer(dem, demVis, 'DEM');
+Map.addLayer(hillshade, hillshadeVis, 'Hillshade');
+
+// Export DEM, Slope, Hillshade, Aspect
+Export.image.toDrive({
+  image:dem,
+  description: 'DEM',
+  scale: 30,
+  region: roi,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image:slope,
+  description: 'Slope',
+  scale: 30,
+  region: roi,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image:aspect,
+  description: 'Aspect',
+  scale: 30,
+  region: roi,
+  maxPixels: 1e13
+});
+
+Export.image.toDrive({
+  image:hillshade,
+  description: 'Hillshade',
+  scale: 30,
+  region: roi,
+  maxPixels: 1e13
+});
