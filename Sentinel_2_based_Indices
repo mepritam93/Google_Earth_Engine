@@ -1,0 +1,177 @@
+
+// NDVI-Normalized Difference Vegetation Index
+// NDWI-Normalized Difference Water Index
+// NDBI-Normalized Difference Built-up Index
+// EVI-Enhanced Vegetation Index
+// SAVI-Soil Adjusted Vegetation Index
+// OSAVI-Optimized Soil Adjusted Vegetation Index
+// GNDVI-Green Normalized Difference Vegetation Index
+// GSAVI-Green Soil Adjusted Vegetation Index
+// ATSAVI-Adjusted transformed soil-adjusted VI
+// ARI-Anthocyanin reflectance index
+// CCCI-Canopy Chlorophyll Content Index
+// CIrededge-Chlorophyll IndexRedEdge
+// CVI-Chlorophyll vegetation index
+// GVMI-Global Vegetation Moisture Index
+// SARVI-Soil and Atmospherically Resistant Vegetation Index
+// NDSI-Normalized Difference Salinity Index
+
+/////////////////  Define Region of Interest Boundary  /////////////////
+
+var roi = ee.Geometry.Polygon([[74.5,23.0], [84.5,23], [84.5,20.5], [74.5,20.5]]);
+
+Map.addLayer (roi, {}, 'roi', false);
+Map.centerObject (roi);
+
+// Define the date range for Sentinel-2 imagery.
+var startDate = '2024-01-01';
+var endDate = '2024-12-31';
+
+// Load Sentinel-2 MSI data.
+var sentinel2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+  .filterBounds(roi)
+  .filterDate(startDate, endDate)
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) // Filter out cloudy images.
+  .map(function(image) {
+    return image.clip(roi); // Clip to the ROI.
+  });
+
+// Function to calculate spectral indices.
+var calculateIndices = function(image) {
+  var b2 = image.select('B2'); // Blue
+  var b3 = image.select('B3'); // Green
+  var b4 = image.select('B4'); // Red
+  var b5 = image.select('B5'); // RedEdge1
+  var b6 = image.select('B6'); // RedEdge2
+  var b7 = image.select('B7'); // RedEdge3
+  var b8 = image.select('B8'); // NIR
+  var b11 = image.select('B11'); // SWIR1
+  var b12 = image.select('B12'); // SWIR2
+
+  // Indices calculations:
+  var ndvi = image.expression('(NIR - RED) / (NIR + RED)', {
+    'NIR': b8,
+    'RED': b4
+  }).rename('NDVI');
+
+  var ndwi = image.expression('(GREEN - NIR) / (GREEN + NIR)', {
+    'GREEN': b3,
+    'NIR': b8
+  }).rename('NDWI');
+
+  var ndbi = image.expression('(SWIR1 - NIR) / (SWIR1 + NIR)', {
+    'SWIR1': b11,
+    'NIR': b8
+  }).rename('NDBI');
+
+  var evi = image.expression('2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
+    'NIR': b8,
+    'RED': b4,
+    'BLUE': b2
+  }).rename('EVI');
+
+  var savi = image.expression('((NIR - RED) * (1 + L)) / (NIR + RED + L)', {
+    'NIR': b8,
+    'RED': b4,
+    'L': 0.5 // L is a canopy background adjustment factor
+  }).rename('SAVI');
+
+  var osavi = image.expression('((NIR - RED) * (1 + L)) / (NIR + RED + L)', {
+    'NIR': b8,
+    'RED': b4,
+    'L': 0.16 // L is a canopy background adjustment factor
+  }).rename('OSAVI');
+
+  var gndvi = image.expression('(NIR - GREEN) / (NIR + GREEN)', {
+    'NIR': b8,
+    'GREEN': b3
+  }).rename('GNDVI');
+
+  var gsavi = image.expression('((NIR - GREEN) * (1 + L)) / (NIR + GREEN + L)', {
+    'NIR': b8,
+    'GREEN': b3,
+    'L': 0.5
+  }).rename('GSAVI');
+
+  var atsavi = image.expression('a * (NIR - a * RED - b) / (RED + a * NIR - a * b)', {
+    'NIR': b8,
+    'RED': b4,
+    'a': 1.22,
+    'b': 0.03
+  }).rename('ATSAVI');
+
+  var ari = image.expression('1 / GREEN - 1 / REDEDGE1', {
+    'GREEN': b3,
+    'REDEDGE1': b5
+  }).rename('ARI');
+
+  var ccci = image.expression('((NIR / GREEN) - 1) / (sqrt(NIR / GREEN))', {
+    'NIR': b8,
+    'GREEN': b3
+  }).rename('CCCI');
+
+  var cirededge = image.expression('(NIR - REDEDGE1) / (NIR + REDEDGE1)', {
+    'NIR': b8,
+    'REDEDGE1': b5
+  }).rename('CIrededge');
+
+  var cvi = image.expression('(NIR * RED) / (GREEN * GREEN)', {
+    'NIR': b8,
+    'RED': b4,
+    'GREEN': b3
+  }).rename('CVI');
+
+  var gvmi = image.expression('((NIR + 0.1) - (SWIR1 + 0.02)) / ((NIR + 0.1) + (SWIR1 + 0.02))', {
+    'NIR': b8,
+    'SWIR1': b11
+  }).rename('GVMI');
+
+  var sarvi = image.expression('((NIR - RED) * (1 + L)) / (RED + NIR + L - C)',{
+    'NIR': b8,
+    'RED': b4,
+    'L': 0.5,
+    'C': b2
+  }).rename('SARVI');
+
+  var ndsi = image.expression('(GREEN - SWIR1) / (GREEN + SWIR1)',{
+    'GREEN': b3,
+    'SWIR1': b11
+  }).rename('NDSI');
+
+  return image.addBands([ndvi, ndwi, ndbi, evi, savi, osavi, gndvi, gsavi, atsavi, ari, ccci, cirededge, cvi, gvmi, sarvi, ndsi]);
+};
+
+// Apply the index calculation function to the Sentinel-2 collection.
+var indexedCollection = sentinel2.map(calculateIndices);
+
+// Calculate the mean of the indices.
+var meanImage = indexedCollection.mean();
+
+// Display the mean NDVI as a layer.
+// Display the mean indices as layers.
+Map.centerObject(roi, 10);
+Map.addLayer(meanImage.select('NDVI'), {min: -1, max: 1, palette: ['red', 'yellow', 'green']}, 'NDVI');
+Map.addLayer(meanImage.select('NDWI'), {min: -1, max: 1, palette: ['blue', 'white', 'green']}, 'NDWI');
+Map.addLayer(meanImage.select('NDBI'), {min: -1, max: 1, palette: ['white', 'brown', 'red']}, 'NDBI');
+Map.addLayer(meanImage.select('EVI'), {min: -1, max: 1, palette: ['red', 'yellow', 'green']}, 'EVI');
+Map.addLayer(meanImage.select('SAVI'), {min: -1, max: 1, palette: ['red', 'yellow', 'green']}, 'SAVI');
+Map.addLayer(meanImage.select('OSAVI'), {min: -1, max: 1, palette: ['red', 'yellow', 'green']}, 'OSAVI');
+Map.addLayer(meanImage.select('GNDVI'), {min: -1, max: 1, palette: ['red', 'yellow', 'green']}, 'GNDVI');
+Map.addLayer(meanImage.select('GSAVI'), {min: -1, max: 1, palette: ['red', 'yellow', 'green']}, 'GSAVI');
+Map.addLayer(meanImage.select('ATSAVI'), {min: -1, max: 1, palette: ['white', 'green', 'brown']}, 'ATSAVI');
+Map.addLayer(meanImage.select('ARI'), {min: -1, max: 1, palette: ['blue', 'yellow', 'red']}, 'ARI');
+Map.addLayer(meanImage.select('CCCI'), {min: -1, max: 1, palette: ['white', 'yellow', 'green']}, 'CCCI');
+Map.addLayer(meanImage.select('CIrededge'), {min: -1, max: 1, palette: ['red', 'orange', 'yellow']}, 'CIrededge');
+Map.addLayer(meanImage.select('CVI'), {min: -1, max: 1, palette: ['white', 'green', 'blue']}, 'CVI');
+Map.addLayer(meanImage.select('GVMI'), {min: -1, max: 1, palette: ['blue', 'white', 'brown']}, 'GVMI');
+Map.addLayer(meanImage.select('SARVI'), {min: -1, max: 1, palette: ['red', 'brown', 'green']}, 'SARVI');
+Map.addLayer(meanImage.select('NDSI'), {min: -1, max: 1, palette: ['green', 'white', 'blue']}, 'NDSI');
+
+// // Export the mean image with all indices.
+// Export.image.toDrive({
+//   image: meanImage,
+//   description: 'Sentinel2_Indices',
+//   scale: 10, // Adjust scale as needed.
+//   region: roi,
+//   maxPixels: 1e13
+// });
