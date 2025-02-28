@@ -1,0 +1,79 @@
+
+/////////////////  Define Region of Interest Boundary  /////////////////
+
+var roi = ee.Geometry.Polygon([[74.5,23.0], [84.5,23], [84.5,20.5], [74.5,20.5]]);
+
+Map.addLayer (roi, {}, 'roi', false);
+Map.centerObject (roi);
+
+///////////////////// Defining dates/year /////////////////////
+
+var start_date = '2009-01-01';
+var end_date = '2009-12-31';
+
+/////////////////////  Landsat-7  /////////////////////
+
+// Cloud cover removal code
+function maskL8sr(image) {
+  
+  var cloudshadowbitmask = (1 << 3);
+  var cloudsbitmask = (1 << 4);
+  var qa = image.select('QA_PIXEL')
+  var qaMask = qa.bitwiseAnd(cloudshadowbitmask).lte(2).and(qa.bitwiseAnd(cloudsbitmask).lte(2));
+  var saturationMask = image.select('QA_RADSAT').lte(2);
+
+  // Apply the scaling factors to the appropriate bands.
+  var opticalBands = image.select('B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2').multiply(0.0000275).add(-0.2);
+  var thermalBands = image.select('LST').multiply(0.00341802).add(149.0);
+
+  // Replace the original bands with the scaled ones and apply the masks.
+  return image.addBands(opticalBands, null, true)
+      .addBands(thermalBands, null, true)
+      .updateMask(qaMask)
+      .updateMask(saturationMask);
+}
+
+var calculateNDWI = function(image) {
+  var ndwi = image.normalizedDifference(['G', 'NIR']).rename('NDWI');
+  return image.addBands(ndwi);  
+} 
+
+var l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
+  .filterDate(start_date, end_date)
+  .filterBounds(roi)
+  .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','ST_B6','QA_PIXEL','QA_RADSAT'],['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'LST','QA_PIXEL','QA_RADSAT'])
+  .map(maskL8sr)
+  .map(calculateNDWI)
+  .median();
+
+// Function to apply focal mean to an image and preserve the metadata
+function applyFocalMean(image) {
+    // Apply focal mean with a kernel size of 5x5 pixels
+    var smoothedImage = image.focal_mean(5, 'square', 'pixels').blend(image);
+    
+    // Copy relevant properties from the original image to the smoothed image
+    return smoothedImage.copyProperties(image, image.propertyNames());
+}
+
+var l7_Focal = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
+  .filterDate(start_date, end_date)
+  .filterBounds(roi)
+  .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','ST_B6','QA_PIXEL','QA_RADSAT'],['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'LST','QA_PIXEL','QA_RADSAT'])
+  .map(maskL8sr)
+  .map(applyFocalMean)
+  .map(calculateNDWI)
+  .median();
+
+// print(l7)
+
+var before_ndwi = l7.select('NDWI').clip(roi);
+var after_ndwi = l7_Focal.select('NDWI').clip(roi);
+
+var ndwiVis = {
+  min: -1,
+  max: 1,
+  palette: ['2f35ff', '39d1ff', '41ff7b', 'ddff56', 'ffbe47', 'ff531f', 'ff0a0a']
+};
+
+Map.addLayer(before_ndwi, ndwiVis, 'NDWI Without FocalMean');
+Map.addLayer(after_ndwi, ndwiVis, 'NDWI With FocalMean');
