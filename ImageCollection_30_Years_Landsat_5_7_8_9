@@ -1,34 +1,23 @@
-///////////////////// Defining Study Area /////////////////////
 
-//For State Boundary
-var gaul = ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level2")
-var main = gaul.filter(ee.Filter.eq('ADM1_NAME', 'Rajasthan'))
-var roi = main;
+// Defining Study Area
+var roi = ee.FeatureCollection("FAO/GAUL_SIMPLIFIED_500m/2015/level2")
+  .filter(ee.Filter.eq('ADM1_NAME', 'Goa'));
 
-Map.addLayer(roi, {}, 'Rajasthan', 0);
+Map.addLayer(roi, {}, 'Goa', 0);
+Map.centerObject (roi);
 
-// Define time range (1990 to 2024)
-var startDate = ee.Date.fromYMD(1990, 1, 1);
-var endDate = ee.Date.fromYMD(2024, 12, 31);
-
-// Function to mask clouds using pixel_qa band.
+// Cloud masking and scaling function
 function maskLandsat(image) {
-  
   var cloudshadowbitmask = (1 << 3);
   var cloudsbitmask = (1 << 4);
-  var qa = image.select('QA_PIXEL')
+  var qa = image.select('QA_PIXEL');
   var qaMask = qa.bitwiseAnd(cloudshadowbitmask).lte(2).and(qa.bitwiseAnd(cloudsbitmask).lte(2));
   var saturationMask = image.select('QA_RADSAT').lte(2);
 
-  // Apply the scaling factors to the appropriate bands.
   var opticalBands = image.select('B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2').multiply(0.0000275).add(-0.2);
-  var thermalBands = image.select('LST').multiply(0.00341802).add(149.0);
-
-  // Replace the original bands with the scaled ones and apply the masks.
   return image.addBands(opticalBands, null, true)
-      .addBands(thermalBands, null, true)
-      .updateMask(qaMask)
-      .updateMask(saturationMask);
+    .updateMask(qaMask)
+    .updateMask(saturationMask);
 }
 
 // Function to apply focal mean to an image and preserve the metadata
@@ -40,85 +29,67 @@ function applyFocalMean(image) {
     return smoothedImage.copyProperties(image, image.propertyNames());
 }
 
-// Function to calculate the mean composite for a year.
-function calculateYearlyMean(year){
+// Function to calculate yearly mean composite
+function calculateYearlyMean(year) {
   var yearStart = ee.Date.fromYMD(year, 1, 1);
   var yearEnd = yearStart.advance(1, 'year');
-  var l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
-      .filterDate(yearStart, yearEnd)
-      .filterBounds(roi)
-      .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','ST_B6','QA_PIXEL','QA_RADSAT'],['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'LST','QA_PIXEL','QA_RADSAT'])
-      .map(maskLandsat);
-  var l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
-      .filterDate(yearStart, yearEnd)
-      .filterBounds(roi)
-      .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7','ST_B6','QA_PIXEL','QA_RADSAT'],['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'LST','QA_PIXEL','QA_RADSAT'])
-      .map(maskLandsat)
-      .map(applyFocalMean);
-  var l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
-      .filterDate(yearStart, yearEnd)
-      .filterBounds(roi)
-      .select(['SR_B2','SR_B3','SR_B4','SR_B5','SR_B6','SR_B7','ST_B10','QA_PIXEL','QA_RADSAT'],['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'LST','QA_PIXEL','QA_RADSAT'])
-      .map(maskLandsat);
-  // var l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
-  //     .filterDate(yearStart, yearEnd)
-  //     .filterBounds(roi)
-  //     .map(maskLandsat);
-  var combined = l5.merge(l7).merge(l8)/*.merge(l9)*/;
-  var meanImage = combined.median(); // Use median to further reduce cloud influence
 
-  // Rename bands to match for true color composite
-  if(meanImage.bandNames().length()>0){
-    if(year>2013){ //Landsat 8/9
-      meanImage = meanImage.rename(['B2', 'B3', 'B4', 'B5', 'B6', 'B7']);
-    } else if(year>=1999){ //Landsat 7
-      meanImage = meanImage.rename(['B1', 'B2', 'B3', 'B4', 'B5', 'B7']);
-    } else { //Landsat 5
-      meanImage = meanImage.rename(['B1', 'B2', 'B3', 'B4', 'B5', 'B7']);
-    }
-    return meanImage.set('year', year); // Add the year property here
-  } else {
-    return ee.Image().set('year', year); // Add the year property here as well
+  var l5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+    .filterDate(yearStart, yearEnd)
+    .filterBounds(roi)
+    .select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'QA_PIXEL', 'QA_RADSAT'], ['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'QA_PIXEL', 'QA_RADSAT'])
+    .map(maskLandsat);
+
+  var l7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
+    .filterDate(yearStart, yearEnd)
+    .filterBounds(roi)
+    .select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7', 'QA_PIXEL', 'QA_RADSAT'], ['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'QA_PIXEL', 'QA_RADSAT'])
+    .map(maskLandsat)
+    .map(applyFocalMean);
+
+  var l8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+    .filterDate(yearStart, yearEnd)
+    .filterBounds(roi)
+    .select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'QA_PIXEL', 'QA_RADSAT'], ['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'QA_PIXEL', 'QA_RADSAT'])
+    .map(maskLandsat);
+  var l9 = ee.ImageCollection('LANDSAT/LC09/C02/T1_L2')
+      .filterDate(yearStart, yearEnd)
+      .filterBounds(roi)
+      .select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7', 'QA_PIXEL', 'QA_RADSAT'], ['B', 'G', 'R', 'NIR', 'SWIR1', 'SWIR2', 'QA_PIXEL', 'QA_RADSAT'])
+      .map(maskLandsat);
+  
+  var combined = l5.merge(l7).merge(l8).merge(l9);
+  var meanImage = combined.median();
+
+  print('Year:', year, 'Collection Size:', combined.size()); // Check collection size
+  return meanImage.set('year', year).clip(roi);
+}
+
+// Function to add map layers for a range of years
+function addYearlyLayers(startYear, endYear) {
+  for (var year = startYear; year <= endYear; year++) {
+    var yearlyImage = calculateYearlyMean(year);
+    var visParamsYear = { min: -0.2, max: 0.1, bands: ['R', 'G', 'B'] };
+    Map.addLayer(yearlyImage, visParamsYear, 'Year ' + year);
   }
 }
 
-// Generate a list of years
-var years = ee.List.sequence(startDate.get('year'), endDate.get('year'));
+// Define start and end years
+var startYear = 1990;
+var endYear = 2024;
 
-// Map the function over the list of years
-var yearlyImages = years.map(function(year){
-  return calculateYearlyMean(year);
-});
+// Add map layers for the specified years
+addYearlyLayers(startYear, endYear);
 
-// Add each year's image as a layer to the map
-yearlyImages.evaluate(function(images){
-  images.forEach(function(image){
-    if(image && image.properties){ // Check if image and image.properties exist
-      var year = image.properties.year;
-      var visParams = {min: 0, max: 3000, bands: ['B4', 'B3', 'B2']}; // True color composite
-      if(image.bandNames && typeof image.bandNames === 'function' && image.bandNames().length > 0){ // check if image is an image and has bands.
-        Map.addLayer(ee.Image(image), visParams, 'Year: ' + year);
-      } else {
-        print('No data for year: ' + year);
-      }
-    } else{
-      print('Invalid Image encountered')
-    }
-  });
-});
-
-//Export one year's image (e.g. 2024)
+// Export a single year's image (e.g., 2024)
 var exportYear = 2024;
 var exportImage = calculateYearlyMean(exportYear);
 
-if(exportImage.bandNames().length()>0){
-  Export.image.toDrive({
-    image: exportImage,
-    description: 'Landsat_Year_' + exportYear,
-    scale: 30,
-    region: roi,
-    maxPixels: 1e13
-  });
-} else {
-  print('No export data for year: ' + exportYear);
-}
+Export.image.toDrive({
+  image: exportImage,
+  description: 'Landsat_Year_' + exportYear,
+  scale: 30, // Adjust scale as needed
+  region: roi,
+  maxPixels: 1e13, // Adjust maxPixels as needed
+  fileFormat: 'GeoTIFF' // Choose file format
+});
