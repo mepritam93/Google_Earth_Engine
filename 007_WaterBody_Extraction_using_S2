@@ -1,0 +1,67 @@
+/**
+ * @name Water Body Extraction
+ * @description This script extracts water bodies from a Sentinel-2 image using the Modified Normalized Difference Water Index (MNDWI) and thresholding.
+ */
+
+/////////////////  Define Region of Interest Boundary  /////////////////
+
+var dataset = ee.FeatureCollection("WWF/HydroSHEDS/v1/Basins/hybas_12")
+//Map.addLayer (dataset)
+
+var mainID = 4120031730 // Mahi Basin
+// var mainID = 4120031610 //ID for Narmada Basin
+// var mainID = 4120025450 //for Ganga
+// var mainID = 4120027100 // Mahanadi
+// var mainID = 4120027940 //Krishna Basin
+
+var main = dataset.filter(ee.Filter.eq('MAIN_BAS', mainID))
+// print('No of Subbasins:', main.size());
+var roi = main;
+
+Map.addLayer (roi, {}, 'roi')
+Map.centerObject (roi)
+
+// Define the date range for the Sentinel-2 image.
+var startDate = '2024-01-01';
+var endDate = '2024-01-31';
+
+// Load a Sentinel-2 image collection and filter by date and region.
+var sentinel2 = ee.ImageCollection('COPERNICUS/S2_HARMONIZED')
+  .filterDate(startDate, endDate)
+  .filterBounds(roi)
+  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)); // Filter out cloudy images
+
+// Get the median composite of the image collection.
+var image = sentinel2.median().clip(roi);
+
+// Calculate the MNDWI.
+var mndwi = image.expression('(GREEN - SWIR) / (GREEN + SWIR)', {
+  'GREEN': image.select('B3'), // Green band
+  'SWIR': image.select('B11') // SWIR band
+});
+
+// Define the MNDWI threshold. Adjust this value as needed.
+var threshold = 0.0;
+
+// Create a water mask using the threshold.
+var waterMask = mndwi.gt(threshold);
+
+// Optional: Refine the water mask using morphological operations (e.g., erosion, dilation).
+// Example: Erosion to remove small isolated pixels.
+var erodedWaterMask = waterMask.focal_min({radius: 2, units: 'pixels'});
+
+// Visualize the results.
+Map.centerObject(roi, 12);
+Map.addLayer(image, {min: 0, max: 3000, bands: ['B4', 'B3', 'B2']}, 'Sentinel-2 Image');
+Map.addLayer(mndwi, {min: -1, max: 1, palette: ['blue', 'white', 'green']}, 'MNDWI');
+Map.addLayer(waterMask.selfMask(), {palette: 'blue'}, 'Water Mask');
+Map.addLayer(erodedWaterMask.selfMask(), {palette: 'cyan'}, 'Refined Water Mask');
+
+// Export the water mask as a GeoTIFF.
+Export.image.toDrive({
+  image: erodedWaterMask,
+  description: 'water_mask',
+  scale: 10, // Resolution in meters
+  region: roi,
+  maxPixels: 1e13
+});
