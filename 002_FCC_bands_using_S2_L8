@@ -7,7 +7,6 @@ var dataset = ee.FeatureCollection("WWF/HydroSHEDS/v1/Basins/hybas_12")
 var mainID = 4120031730 // Mahi Basin
 // var mainID = 4120031610 //ID for Narmada Basin
 // var mainID = 4120025450 //for Ganga
-// var mainID = 4120031730 //for Mahi Basin
 // var mainID = 4120027100 // Mahanadi
 // var mainID = 4120027940 //Krishna Basin
 
