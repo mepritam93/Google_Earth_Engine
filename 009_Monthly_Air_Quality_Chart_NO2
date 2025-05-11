@@ -1,0 +1,84 @@
+// Define the region of interest (AOI) - Example: Udaipur, Rajasthan, India
+var aoi = ee.FeatureCollection("FAO/GAUL/2015/level2")
+                  .filter(ee.Filter.eq('ADM2_NAME', 'Udaipur'));
+
+Map.addLayer(aoi);
+
+// Month name list
+var monthNames = ee.List(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+
+// List of years
+var years = ee.List.sequence(2019, 2024);
+
+//Fuction to process each year
+var getMonthlyNO2 = function(year){
+  year = ee.Number(year);
+  var start = ee.Date.fromYMD(year, 1, 1);
+  var end = start.advance(1, 'year');
+  
+  var collection = ee.ImageCollection("COPERNICUS/S5P/OFFL/L3_NO2")
+    .filterDate(start, end)
+    .filterBounds(aoi)
+    .select('NO2_column_number_density');
+  
+  var months = ee.List.sequence(1, 12);
+  
+  var monthlyData = months.map(function(month){
+    var startMonth = ee.Date.fromYMD(year, month, 1);
+    var endMonth = startMonth.advance(1, 'month');
+    
+    var monthlyCollection = collection.filterDate(startMonth, endMonth);
+    var monthlyMeanImage = monthlyCollection.mean();
+    
+    var meanDict = monthlyMeanImage.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: aoi,
+      scale: 10000,
+      bestEffort: true,
+      maxPixels: 1e13
+    });
+    
+    var meanValue = ee.Number(meanDict.get('NO2_column_number_density'));
+    
+    //Convert from µmol/m² to µg/m³ (by multiplying with the molar mass of NO2)
+    var meanValueInUGm3 = meanValue.multiply(46.0055);
+    
+    // Conver month number (1-12) to index (0-11) for monthNames list
+    var monthName = monthNames.get(ee.Number(month).subtract(1));
+    
+    return ee.Algorithms.If(
+      meanValueInUGm3,
+      ee.Feature(null, {
+        'Month': month,
+        'MonthName': monthName,
+        'NO2': meanValueInUGm3,
+        'Year': year
+      }),
+      null
+      );
+  });
+  return ee.FeatureCollection(ee.List(monthlyData).filter(ee.Filter.notNull(['NO2'])))
+};
+
+// Map the function over the years
+var allData = ee.FeatureCollection(years.map(getMonthlyNO2)).flatten();
+
+// Generate the chart with month mass
+var chart = ui.Chart.feature.groups({
+  features: allData,
+  xProperty: 'MonthName',
+  yProperty: 'NO2',
+  seriesProperty: 'Year'
+}).setChartType('LineChart')
+.setOptions({
+  title: 'Monthly NO2 Trends (µg/m³)',
+  hAxis: {
+    title: 'Month',
+    slantedText: true
+  },
+  vAxis: {title: 'NO2 Column Density (µg/m³)'},
+  
+})
+
+print(chart)
