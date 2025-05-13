@@ -1,0 +1,118 @@
+// Define the region of interest (AOI) - Example: Ajmer, Rajasthan, India
+var aoi = ee.FeatureCollection("FAO/GAUL/2015/level2")
+                  .filter(ee.Filter.eq('ADM2_NAME', 'Ajmer'));
+
+Map.addLayer(aoi, 0);
+// Map.centerObject(aoi, 7);
+
+// Clound Mask Function //
+function cloudbitMask(image){
+  var QA = image.select('QA_PIXEL');
+  var cloudMask = QA.bitwiseAnd(1 << 3).eq(0)
+                    .and(QA.bitwiseAnd(1 << 4).eq(0));
+  return image.updateMask(cloudMask);
+}
+
+// Visualization Parameters //
+var viz = { min: 29.297960648787605, max: 44.8511916884948, palette: ['040274', '2081C3', '6BE5FD', 'F3F3B2', 'FCA20B', 'BD180B'] };
+
+var viz1 = { min: -2.15, max: 2.95, palette: ['blue', 'white', 'red'] };
+
+// 2024 data //
+var landsat_2024 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+                    .filterBounds(aoi)
+                    .filterDate('2024-01-01', '2024-12-31')
+                    .filterMetadata('CLOUD_COVER', 'less_than', 1)
+                    .map(cloudbitMask)
+                    .median()
+                    .clip(aoi);
+
+// NDWI & Emissivity 2024
+var NDWI_2024 = landsat_2024.normalizedDifference(['SR_B5', 'SR_B4']);
+var min_2024 = ee.Number(NDWI_2024.reduceRegion({ reducer: ee.Reducer.min(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var max_2024 = ee.Number(NDWI_2024.reduceRegion({ reducer: ee.Reducer.max(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var fv_2024 = NDWI_2024.subtract(min_2024).divide(max_2024.subtract(min_2024)).pow(2).rename('FV');
+var EM_2024 = fv_2024.multiply(0.004).add(0.986).rename('EMM');
+
+// Thermal band and LST 2024
+var thermal_2024 = landsat_2024.select('ST_B10').multiply(0.00341802).add(149);
+var LST_2024 = thermal_2024.expression(
+  '(Tb / (1 + (0.0015 * (Tb / 1.438)) * log(EM))) - 273.15', {
+    'Tb': thermal_2024.select('ST_B10'),
+    'EM': EM_2024.select('EMM')
+  }).rename('LST_2024');
+Map.addLayer(LST_2024, viz, 'LST_2024');
+
+// UHI 2024
+var mean_LST_2024 = ee.Number(LST_2024.reduceRegion({ reducer: ee.Reducer.mean(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var std_LST_2024 = ee.Number(LST_2024.reduceRegion({ reducer: ee.Reducer.stdDev(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var UHI_2024 = LST_2024.subtract(ee.Image.constant(mean_LST_2024))
+                      .divide(ee.Image.constant(std_LST_2024))
+                      .rename('UHI_2024');
+Map.addLayer(UHI_2024, viz1, 'UHI 2024', 0);
+
+// 2015 data //
+var landsat_2015 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+                    .filterBounds(aoi)
+                    .filterDate('2015-01-01', '2015-12-31')
+                    .filterMetadata('CLOUD_COVER', 'less_than', 1)
+                    .map(cloudbitMask)
+                    .median()
+                    .clip(aoi);
+
+// NDWI & Emissivity 2015
+var NDWI_2015 = landsat_2015.normalizedDifference(['SR_B5', 'SR_B4']);
+var min_2015 = ee.Number(NDWI_2015.reduceRegion({ reducer: ee.Reducer.min(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var max_2015 = ee.Number(NDWI_2015.reduceRegion({ reducer: ee.Reducer.max(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var fv_2015 = NDWI_2015.subtract(min_2015).divide(max_2015.subtract(min_2015)).pow(2).rename('FV');
+var EM_2015 = fv_2015.multiply(0.004).add(0.986).rename('EMM');
+
+// Thermal band and LST 2015
+var thermal_2015 = landsat_2015.select('ST_B10').multiply(0.00341802).add(149);
+var LST_2015 = thermal_2015.expression(
+  '(Tb / (1 + (0.0015 * (Tb / 1.438)) * log(EM))) - 273.15', {
+    'Tb': thermal_2015.select('ST_B10'),
+    'EM': EM_2015.select('EMM')
+  }).rename('LST_2015');
+Map.addLayer(LST_2024, viz, 'LST_2015');
+
+// UHI 2015
+var mean_LST_2015 = ee.Number(LST_2015.reduceRegion({ reducer: ee.Reducer.mean(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var std_LST_2015 = ee.Number(LST_2015.reduceRegion({ reducer: ee.Reducer.stdDev(), geometry: aoi, scale: 100, maxPixels: 1e13}).values().get(0));
+var UHI_2015 = LST_2015.subtract(ee.Image.constant(mean_LST_2015))
+                      .divide(ee.Image.constant(std_LST_2015))
+                      .rename('UHI_2015');
+Map.addLayer(UHI_2015, viz1, 'UHI 2015', 0);
+
+//---------------------- Split Panel for LST ---------------------//
+
+// Split Layer
+var leftMap = ui.Map()
+var rightMap = ui.Map()
+
+var NDWI_Dry_img = ui.Map.Layer(LST_2015, {min: 40, max: 52, palette: ['040274', '2081C3', '6BE5FD', 'F3F3B2', 'FCA20B', 'BD180B'] });
+var NDWI_Wet_img = ui.Map.Layer(LST_2024, {min: 40, max: 52, palette: ['040274', '2081C3', '6BE5FD', 'F3F3B2', 'FCA20B', 'BD180B'] });
+
+var Dry_layer = leftMap.layers()
+var Wet_layer = rightMap.layers()
+
+Dry_layer.add(NDWI_Dry_img)
+Wet_layer.add(NDWI_Wet_img)
+
+var ndwi_dry_label = ui.Label('LST 2015')
+ndwi_dry_label.style().set('position', 'bottom-right')
+
+var ndwi_wet_label = ui.Label('LST 2024')
+ndwi_wet_label.style().set('position', 'bottom-left')
+
+var splitPanel = ui.SplitPanel({
+  firstPanel: leftMap,
+  secondPanel: rightMap,
+  orientation: 'horizontal',
+  wipe: true
+})
+
+ui.root.clear()
+ui.root.add(splitPanel)
+
+var linkpanel = ui.Map.Linker([leftMap, rightMap])
