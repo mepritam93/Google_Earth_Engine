@@ -1,0 +1,19 @@
+Map.centerObject(ROI, 9);
+
+// Sea level rise and inundation mapping
+// Load SRTM DEM
+var dem = ee.Image("USGS/SRTMGL1_003").clip(ROI);
+Map.addLayer(dem, {min: 0, max: 50, platte: ['white', 'green', 'blue']});
+
+// Function to create SLR layer
+function createSLRLayer(height){
+  var flooded = dem.lte(height).selfMask();
+  return flooded.set('name', 'SLR_' + height + 'm');
+}
+
+var slrlayers = [];
+for (var i =1; i <= 10; i++){
+  var slr = createSLRLayer(i);
+  slrlayers.push(slr);
+  Map.addLayer(slr, {palette: ['#0000ff']}, 'SLR +' + i + 'm');
+}
